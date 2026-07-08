@@ -64,7 +64,7 @@ uint64_t alt_press_comp_fxd(uint32_t uncomp_press, struct alt_calib_data *calib_
     int64_t sensitivity;
     uint64_t comp_press;
  
-    /
+    
     int64_t t_fine = calib_data->t_lin >> 32;
 
     partial_data1 = t_fine * t_fine;
@@ -159,13 +159,11 @@ alt_status_t alt_get_data(alt_sensor_t * altimeter){
     altimeter->status = status;
     
 
-    if((status & ALT_DRDY_PRESS_MSK) && (status & ALT_DRDY_TEMP_MSK)){
-        APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Data ready for reading\r\n");
-    }
-    else{
+    if(!(status & ALT_DRDY_PRESS_MSK) | !(status & ALT_DRDY_TEMP_MSK)){
         APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Data not ready yet\r\n");
         return ALT_NOT_READY;
     }
+ 
 
     //read presseure and temp data  
     uint8_t pressure_data[3];

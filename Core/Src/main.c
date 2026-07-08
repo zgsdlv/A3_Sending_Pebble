@@ -543,6 +543,7 @@ void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -552,12 +553,37 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
+  /*Configure GPIO pin : USR_BTN_Pin */
+  GPIO_InitStruct.Pin = USR_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(USR_BTN_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+// User Button Interrupt
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  static bool debug_sel;
+  if(GPIO_Pin == USR_BTN_Pin) {
+
+    
+    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Button Pressed. \r\n");
+  
+  }
+
+}
+
+
 void header_art(){
   APP_LOG(TS_OFF, VLEVEL_L, "\r\n");
   APP_LOG(TS_OFF, VLEVEL_L, "  _   _ __  *  __ ____    \r\n");

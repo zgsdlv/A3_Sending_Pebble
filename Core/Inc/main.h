@@ -68,6 +68,9 @@ void MX_USART1_UART_Init(void);
 #define BMP_SDA_GPIO_Port GPIOA
 #define BMP_SCL_Pin GPIO_PIN_15
 #define BMP_SCL_GPIO_Port GPIOB
+#define USR_BTN_Pin GPIO_PIN_13
+#define USR_BTN_GPIO_Port GPIOB
+#define USR_BTN_EXTI_IRQn EXTI15_10_IRQn
 #define GPS_TX_Pin GPIO_PIN_1
 #define GPS_TX_GPIO_Port GPIOC
 #define GPS_RX_Pin GPIO_PIN_0
