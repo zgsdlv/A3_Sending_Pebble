@@ -8,8 +8,6 @@
 
 
 extern I2C_HandleTypeDef hi2c2;
-
-
 static struct alt_calib_data calib_data;
 
 
@@ -37,31 +35,24 @@ alt_status_t alt_write_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
 
 }
 
-// Integer/fixed-point temperature compensation (BMP3 datasheet, Bosch integer path).
-// Uses the RAW calibration coefficients directly; the datasheet scaling factors
-// Returns temperature in hundredths of a degree Celsius (e.g. 2534 => 25.34 C).
-static int64_t alt_temp_comp(uint32_t uncomp_temp, struct alt_calib_data *calib_data){
+
+static int64_t alt_temp_comp_fxd(uint32_t uncomp_temp, struct alt_calib_data *calib_data){
     int64_t partial_data1;
     int64_t partial_data2;
     int64_t partial_data3;
-    int64_t partial_data4;
-    int64_t partial_data5;
-    int64_t partial_data6;
 
-    partial_data1 = (int64_t)uncomp_temp - (256 * (int64_t)calib_data->par_t1);
-    partial_data2 = (int64_t)calib_data->par_t2 * partial_data1;
-    partial_data3 = partial_data1 * partial_data1;
-    partial_data4 = partial_data3 * (int64_t)calib_data->par_t3;
-    partial_data5 = (partial_data2 * 262144) + partial_data4;
-    partial_data6 = partial_data5 / 4294967296LL;   // /2^32 
-    //Store linearized temperature; pressure compensation needs it 
-    calib_data->t_lin = partial_data6;
-    return (partial_data6 * 25) / 16384;             /* hundredths of degC */
+    partial_data1 = (int64_t)uncomp_temp - ((int64_t)calib_data->par_t1 << 8);   // S=0
+    partial_data2 = partial_data1 * (int64_t)calib_data->par_t2;                 // S=+30
+    partial_data3 = (partial_data1 * partial_data1) * (int64_t)calib_data->par_t3; // S=+48
+
+    calib_data->t_lin = (partial_data2 << 18) + partial_data3;                   // S=+48
+    return calib_data->t_lin >>32;
 }
 
-// Integer/fixed-point pressure compensation (BMP3 datasheet, Bosch integer path).
-// Returns pressure in Pa as Q24.8 fixed point (divide by 256 for whole Pa).
-static uint64_t alt_compensate_pressure(uint32_t uncomp_press, struct alt_calib_data *calib_data)
+
+ 
+
+uint64_t alt_press_comp_fxd(uint32_t uncomp_press, struct alt_calib_data *calib_data)
 {
     int64_t partial_data1;
     int64_t partial_data2;
@@ -72,35 +63,36 @@ static uint64_t alt_compensate_pressure(uint32_t uncomp_press, struct alt_calib_
     int64_t offset;
     int64_t sensitivity;
     uint64_t comp_press;
+ 
+    /
+    int64_t t_fine = calib_data->t_lin >> 32;
 
-    partial_data1 = calib_data->t_lin * calib_data->t_lin;
+    partial_data1 = t_fine * t_fine;
     partial_data2 = partial_data1 / 64;
-    partial_data3 = (partial_data2 * calib_data->t_lin) / 256;
-    partial_data4 = ((int64_t)calib_data->par_p8 * partial_data3) / 32;
-    partial_data5 = ((int64_t)calib_data->par_p7 * partial_data1) * 16;
-    partial_data6 = ((int64_t)calib_data->par_p6 * calib_data->t_lin) * 4194304;
-    offset = ((int64_t)calib_data->par_p5 * 140737488355328LL) + partial_data4 + partial_data5 + partial_data6;
-
-    partial_data2 = ((int64_t)calib_data->par_p4 * partial_data3) / 32;
-    partial_data4 = ((int64_t)calib_data->par_p3 * partial_data1) * 4;
-    partial_data5 = ((int64_t)calib_data->par_p2 - 16384) * calib_data->t_lin * 2097152;
-    sensitivity = (((int64_t)calib_data->par_p1 - 16384) * 70368744177664LL) + partial_data2 + partial_data4 + partial_data5;
-
+    partial_data3 = (partial_data2 * t_fine) / 256;
+    partial_data4 = (calib_data->par_p8 * partial_data3) / 32;
+    partial_data5 = (calib_data->par_p7 * partial_data1) * 16;
+    partial_data6 = (calib_data->par_p6 * t_fine) * 4194304;
+    offset = (int64_t)((int64_t)(calib_data->par_p5) * (int64_t)140737488355328U) + partial_data4 + partial_data5 + partial_data6;
+    partial_data2 = (((int64_t)calib_data->par_p4) * partial_data3) / 32;
+    partial_data4 = (calib_data->par_p3 * partial_data1) * 4;
+    partial_data5 = ((int64_t)(calib_data->par_p2) - 16384) * ((int64_t)t_fine) * 2097152;
+    sensitivity = (((int64_t)(calib_data->par_p1) - 16384) * (int64_t)70368744177664U) + partial_data2 + partial_data4 + partial_data5;
     partial_data1 = (sensitivity / 16777216) * (int64_t)uncomp_press;
-    partial_data2 = (int64_t)calib_data->par_p10 * calib_data->t_lin;
-    partial_data3 = partial_data2 + (65536 * (int64_t)calib_data->par_p9);
+    partial_data2 = (int64_t)(calib_data->par_p10) * (int64_t)t_fine;
+    partial_data3 = partial_data2 + (65536 * (int64_t)(calib_data->par_p9));
     partial_data4 = (partial_data3 * (int64_t)uncomp_press) / 8192;
 
-    //divide by 10 then multiply by 10 to avoid intermediate 64-bit overflow 
     partial_data5 = ((int64_t)uncomp_press * (partial_data4 / 10)) / 512;
     partial_data5 = partial_data5 * 10;
     partial_data6 = (int64_t)((uint64_t)uncomp_press * (uint64_t)uncomp_press);
-    partial_data2 = ((int64_t)calib_data->par_p11 * partial_data6) / 65536;
+    partial_data2 = ((int64_t)(calib_data->par_p11) * (int64_t)(partial_data6)) / 65536;
     partial_data3 = (partial_data2 * (int64_t)uncomp_press) / 128;
     partial_data4 = (offset / 4) + partial_data1 + partial_data5 + partial_data3;
-    comp_press = ((uint64_t)partial_data4 * 25) / 1099511627776ULL;
+    comp_press = (((uint64_t)partial_data4 * 25) / (uint64_t)1099511627776U);
 
-    return comp_press;  
+    return comp_press;   // units: 1/100 Pa
+
 }
 
 
@@ -115,7 +107,7 @@ alt_status_t alt_config(alt_sensor_t * altimeter){
     ret = alt_read_reg(ALT_CHIP_ID, &alt_chip_id, 1);
     if(ret != ALT_I2C_OK) return ret;
     if(alt_chip_id != CHIP_ID){
-        APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Trouble communicating with BMP90...\r\n");
+        APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Trouble communicLT_I2C_BUSYating with BMP90...\r\n");
         altimeter->i2c_status = ALT_I2C_ERROR;
         return ALT_I2C_ERROR;
     }
@@ -140,15 +132,6 @@ alt_status_t alt_config(alt_sensor_t * altimeter){
     calib_data.par_p10 = (int8_t)   calib_buf[19];
     calib_data.par_p11 = (int8_t)   calib_buf[20];
 
-    //print coeffificents, pressure seems to bee too low. 39KPa, should be 100KPa..
-    // temp seems reasonable at 28sih C
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "CALIB p1=%d p2=%d p3=%d p4=%d p5=%u p6=%u\r\n",
-            (int)calib_data.par_p1, (int)calib_data.par_p2, (int)calib_data.par_p3,
-            (int)calib_data.par_p4, (unsigned)calib_data.par_p5, (unsigned)calib_data.par_p6);
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "CALIB p7=%d p8=%d p9=%d p10=%d p11=%d\r\n",
-            (int)calib_data.par_p7, (int)calib_data.par_p8, (int)calib_data.par_p9,
-            (int)calib_data.par_p10, (int)calib_data.par_p11);
-
 
     // configure mode, OSR, ODR
     uint8_t osr = (ALT_OVERSAMPLING_X1_TEMP << 3) | ALT_PRESSURE_OVERSAMPLING_X8;
@@ -163,15 +146,6 @@ alt_status_t alt_config(alt_sensor_t * altimeter){
     if(ret != ALT_I2C_OK) return ret;
     altimeter->mode = ALT_NORMAL_MODE;
 
-    
-    // uint8_t cfg_rb[3] = {0};
-    // alt_read_reg(ALT_PWR_CTRL, cfg_rb, 3);
-    // uint8_t err_rb = 0;
-    // alt_read_reg(ALT_ERR_REG, &err_rb, 1);
-    // APP_LOG(TS_OFF, VLEVEL_ALWAYS, "PWR_CTRL=%02X OSR=%02X ODR=%02X ERR=%02X\r\n", cfg_rb[0], cfg_rb[1], cfg_rb[2], err_rb);
-
-
-
     altimeter->i2c_status = ret;
     return ALT_I2C_OK;
 }
@@ -183,7 +157,6 @@ alt_status_t alt_get_data(alt_sensor_t * altimeter){
     uint8_t ret = alt_get_status(&status);
     if (ret != ALT_I2C_OK) return ret;
     altimeter->status = status;
-    
     
 
     if((status & ALT_DRDY_PRESS_MSK) && (status & ALT_DRDY_TEMP_MSK)){
@@ -207,21 +180,17 @@ alt_status_t alt_get_data(alt_sensor_t * altimeter){
     uint32_t pressure_raw = ((uint32_t)pressure_data[2] << 16) | ((uint32_t)pressure_data[1] << 8) | pressure_data[0];
     uint32_t temp_raw     = ((uint32_t)temp_data[2] << 16)     | ((uint32_t)temp_data[1] << 8)     | temp_data[0];
 
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Uncompensated pressure: %lu\r\n", pressure_raw);
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Uncompensated temperature: %lu\r\n", temp_raw);
+    alt_temp_comp_fxd(temp_raw, &calib_data);              // sets calib_data.t_lin (S=48)
+    uint64_t comp_press = alt_press_comp_fxd(pressure_raw, &calib_data);  // 1/100 Pa
 
-    //compensate the data 
-    int64_t  temp_comp   = alt_temp_comp(temp_raw, &calib_data);               // hundredths of degC
-    uint64_t press_q24_8 = alt_compensate_pressure(pressure_raw, &calib_data); // Q24.8 Pa
-    uint32_t press_pa    = (uint32_t)(press_q24_8 / 256);                      // whole Pa
 
-    int32_t temp_whole = (int32_t)(temp_comp / 100);
-    int32_t temp_frac  = (int32_t)(temp_comp % 100);
-    if (temp_frac < 0) temp_frac = -temp_frac;
+    int32_t temp_centi = (int32_t)(((calib_data.t_lin >> 32) * 100) >> 16);
+    int32_t t_whole = temp_centi / 100;
+    int32_t t_frac  = temp_centi % 100;
+    if (t_frac < 0) t_frac = -t_frac;
 
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Compensated pressure: %lu Pa\r\n", press_pa);
-    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Compensated temperature: %ld.%02ld C\r\n",
-            (long)temp_whole, (long)temp_frac);
+    uint32_t p_whole = (uint32_t)(comp_press / 100);
+    uint32_t p_frac  = (uint32_t)(comp_press % 100);
 
     return ALT_I2C_OK;
 }
@@ -272,6 +241,6 @@ alt_status_t alt_get_calib_data(){
 
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
         if (hi2c->Instance == I2C2) {
-        // the read is done, rx_buf is filled — signal your task
+       
     }
 }
