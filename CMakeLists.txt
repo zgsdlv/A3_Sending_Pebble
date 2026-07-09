@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/BSP/STM32WLxx_Nucleo/stm32wlxx_nucleo_radio.c
     Core/Src/gps.c
     Core/Src/altimeter.c
+    Core/Src/softuart.c
 )
 
 # Add include paths

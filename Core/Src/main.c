@@ -65,6 +65,8 @@ RTC_HandleTypeDef hrtc;
 
 SUBGHZ_HandleTypeDef hsubghz;
 
+TIM_HandleTypeDef htim1;
+
 /* Definitions for Conops_Task */
 osThreadId_t Conops_TaskHandle;
 const osThreadAttr_t Conops_Task_attributes = {
@@ -102,6 +104,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_TIM1_Init(void);
 void Conops_Process(void *argument);
 void GPS_Process(void *argument);
 void Altimeter_Process(void *argument);
@@ -110,6 +113,7 @@ void FC_Process(void *argument);
 /* USER CODE BEGIN PFP */
 void header_art();
 void check_debug_pins();
+uint8_t getchar_v2(uint8_t SoftUartNumber);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -163,6 +167,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_LPUART1_UART_Init();
   MX_I2C2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   
   
@@ -240,7 +245,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the CPU, AHB and APB buses clocks
   */
@@ -249,7 +254,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_11;
   RCC_OscInitStruct.LSIDiv = RCC_LSI_DIV1;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
@@ -269,7 +274,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.AHBCLK3Divider = RCC_SYSCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -291,7 +296,7 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x00100D14;
+  hi2c2.Init.Timing = 0x10805D88;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -346,7 +351,7 @@ static void MX_LPUART1_UART_Init(void)
   hlpuart1.Init.Mode = UART_MODE_TX_RX;
   hlpuart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   hlpuart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  hlpuart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  hlpuart1.Init.ClockPrescaler = UART_PRESCALER_DIV2;
   hlpuart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   hlpuart1.FifoMode = UART_FIFOMODE_DISABLE;
   if (HAL_UART_Init(&hlpuart1) != HAL_OK)
@@ -531,6 +536,54 @@ void MX_SUBGHZ_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+  /* TIM1 @ 48kHz drives the software UART bit engine (5x the 9600 baud rate) */
+  HAL_TIM_Base_Start_IT(&htim1);
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 void MX_DMA_Init(void)
@@ -568,7 +621,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(FC_TX_GPIO_Port, FC_TX_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(FC_TX_GPIO_Port, FC_TX_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : FC_RX_Pin */
   GPIO_InitStruct.Pin = FC_RX_Pin;
@@ -580,7 +633,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = FC_TX_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(FC_TX_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : USR_BTN_Pin */
@@ -778,6 +831,16 @@ void Altimeter_Process(void *argument)
 }
 
 /* USER CODE BEGIN Header_FC_Process */
+uint8_t getchar_v2(uint8_t SoftUartNumber)
+{
+    uint8_t ch;
+    while (SoftUartRxAlavailable(SoftUartNumber) == 0) {
+        osDelay(20);
+    }
+    SoftUartReadRxBuffer(SoftUartNumber, &ch, 1);
+    return ch;
+}
+
 /**
 * @brief Function implementing the FC_Task thread.
 * @param argument: Not used
@@ -787,10 +850,15 @@ void Altimeter_Process(void *argument)
 void FC_Process(void *argument)
 {
   /* USER CODE BEGIN FC_Process */
+  char ch;
+  SoftUartInit(0,FC_TX_GPIO_Port,FC_TX_Pin,FC_RX_GPIO_Port, FC_RX_Pin);
+  SoftUartEnableRx(0);
+  SoftUartPuts(0,(uint8_t*)"Hello!\r\n",8);
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    ch = getchar_v2(0);
+    SoftUartPuts(0, &ch, 1);
   }
   /* USER CODE END FC_Process */
 }
@@ -813,7 +881,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  /* TIM1 update ISR clocks the software UART (kept here so regen won't drop it) */
+  if (htim->Instance == TIM1)
+  {
+    SoftUartHandler();
+  }
   /* USER CODE END Callback 1 */
 }
 

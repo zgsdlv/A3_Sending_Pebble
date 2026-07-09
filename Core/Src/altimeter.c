@@ -228,8 +228,6 @@ alt_status_t alt_get_calib_data(){
 }
 
 
-
-
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
         if (hi2c->Instance == I2C2) {
        
