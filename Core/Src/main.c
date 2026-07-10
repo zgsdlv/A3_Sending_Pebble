@@ -706,11 +706,10 @@ void header_art(){
 void check_debug_pins(){
 
   // Report current config of PA13 (SWDIO) / PA14 (SWCLK)
-  static const char *mode_str[4] = { "INPUT", "OUTPUT", "ALT_FN", "ANALOG" };
+  static const char *mode_str[4] = { "RX", "TX", "DEBUG", "ANALOG" };
   for (uint32_t pin = 13; pin <= 14; pin++) {
     uint32_t mode = (GPIOA->MODER >> (pin * 2)) & 0x3;
-    uint32_t af   = (GPIOA->AFR[pin >> 3] >> ((pin & 0x7) * 4)) & 0xF;
-    APP_LOG(TS_OFF, VLEVEL_L, "PA%lu: %s, AF%lu\r\n", pin, mode_str[mode], af);
+    APP_LOG(TS_OFF, VLEVEL_L, "PA%lu: %s\r\n", pin, mode_str[mode]);
   }
 }
 
@@ -730,13 +729,13 @@ void Conops_Process(void *argument)
   MX_SubGHz_Phy_Init();
   /* USER CODE BEGIN 5 */
   header_art();
-
+  
   
   /* Infinite loop */
   for(;;)
   {
     //APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Conops Process\r\n");
-    
+
     osDelay(1000);
   }
   /* USER CODE END 5 */
@@ -831,15 +830,6 @@ void Altimeter_Process(void *argument)
 }
 
 /* USER CODE BEGIN Header_FC_Process */
-uint8_t getchar_v2(uint8_t SoftUartNumber)
-{
-    uint8_t ch;
-    while (SoftUartRxAlavailable(SoftUartNumber) == 0) {
-        osDelay(20);
-    }
-    SoftUartReadRxBuffer(SoftUartNumber, &ch, 1);
-    return ch;
-}
 
 /**
 * @brief Function implementing the FC_Task thread.
@@ -850,15 +840,43 @@ uint8_t getchar_v2(uint8_t SoftUartNumber)
 void FC_Process(void *argument)
 {
   /* USER CODE BEGIN FC_Process */
-  char ch;
+  static char line[64];
+  static uint8_t line_len = 0;
+  uint8_t buf[64];
+  uint8_t len;
+  
   SoftUartInit(0,FC_TX_GPIO_Port,FC_TX_Pin,FC_RX_GPIO_Port, FC_RX_Pin);
   SoftUartEnableRx(0);
-  SoftUartPuts(0,(uint8_t*)"Hello!\r\n",8);
+  SoftUartPuts(0,(uint8_t*)"RX Test!\r\n",10);
   /* Infinite loop */
   for(;;)
   {
-    ch = getchar_v2(0);
-    SoftUartPuts(0, &ch, 1);
+    len = SoftUartRxAlavailable(0);
+    if (len > 0) {
+        if (SoftUartReadRxBuffer(0, buf, len) == SoftUart_OK) {
+          for (uint8_t i = 0; i < len; i++) {
+            uint8_t c = buf[i];
+            if (c == '\r' || c == '\n') {
+                line[line_len] = '\0';
+
+                if (strcmp(line, "ARM") == 0) {
+                    SoftUartWaitUntilTxComplate(0);
+                    SoftUartPuts(0, (uint8_t*)"\r\nARM command received\r\n", 24);
+                } else {
+                    SoftUartWaitUntilTxComplate(0);
+                    SoftUartPuts(0, (uint8_t*)"\r\n", 2);
+                }
+                line_len = 0;
+            } else if (line_len < sizeof(line) - 1) {
+                line[line_len++] = c;
+                SoftUartWaitUntilTxComplate(0);   // let the previous byte finish
+                SoftUartPuts(0, &c, 1);           // echo
+            }
+          }
+
+        }
+    }
+    osDelay(5);
   }
   /* USER CODE END FC_Process */
 }
