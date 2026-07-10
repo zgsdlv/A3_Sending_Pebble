@@ -40,7 +40,13 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum{
+  OFF,
+  PRE_FLIGHT,
+  ARMED,
+  IN_FLIGHT,
+  RECOVERY
+}deviceState_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -114,6 +120,7 @@ void FC_Process(void *argument);
 void header_art();
 void check_debug_pins();
 uint8_t getchar_v2(uint8_t SoftUartNumber);
+static void setState(deviceState_t new_state);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -127,9 +134,7 @@ static volatile uint8_t gps_ready_flg;     // set when a full sentence is ready
 gps_t gps_data;                            // holds the gps data
 
 
-// Variables for BMP Altimeter
-
-
+deviceState_t state; 
 
 /* USER CODE END 0 */
 
@@ -717,6 +722,23 @@ void check_debug_pins(){
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_Conops_Process */
+
+static void setState(deviceState_t new_state){
+  state =  new_state;
+  switch(new_state){
+    case PRE_FLIGHT:
+      break;
+    case ARMED:
+      break;
+    case IN_FLIGHT:
+      break;
+    case RECOVERY:
+      break;
+    default:
+      break;
+  }
+}
+
 /**
   * @brief  Function implementing the Conops_Task thread.
   * @param  argument: Not used
@@ -729,14 +751,15 @@ void Conops_Process(void *argument)
   MX_SubGHz_Phy_Init();
   /* USER CODE BEGIN 5 */
   header_art();
-  
+  state = OFF;
+  deviceState_t next_state = PRE_FLIGHT;
   
   /* Infinite loop */
   for(;;)
   {
-    //APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Conops Process\r\n");
-
-    osDelay(1000);
+    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Changing states...\r\n");
+    if(next_state != state) setState(next_state);
+    osThreadFlagsWait(0x01, osFlagsWaitAny, osWaitForever);
   }
   /* USER CODE END 5 */
 }
