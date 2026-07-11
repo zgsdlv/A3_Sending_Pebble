@@ -33,6 +33,30 @@ static int gps_field_present(const char *token){
     return token != NULL && token[0] != '\0';
 }
 
+// ddmm.mmmm -> decimal degrees * 1e7 (double keeps full precision)
+static int32_t gps_nmea_to_deg_e7(const char *token){
+    double nmea = strtod(token, NULL);
+    int32_t deg = (int32_t)(nmea / 100.0);
+    double minutes = nmea - (double)deg * 100.0;
+    return (int32_t)(((double)deg + minutes / 60.0) * 1e7);
+}
+
+// hhmmss.ss -> hour/minute/second
+static void gps_parse_time(gps_t *gps_data, const char *token){
+    uint32_t t = (uint32_t)strtod(token, NULL);
+    gps_data->hour   = (uint8_t)(t / 10000);
+    gps_data->minute = (uint8_t)((t / 100) % 100);
+    gps_data->second = (uint8_t)(t % 100);
+}
+
+// ddmmyy -> day/month/year
+static void gps_parse_date(gps_t *gps_data, const char *token){
+    long d = strtol(token, NULL, 10);
+    gps_data->day   = (uint8_t)(d / 10000);
+    gps_data->month = (uint8_t)((d / 100) % 100);
+    gps_data->year  = (uint8_t)(d % 100);
+}
+
 
 
 //Parse first token (header), then call the appropriate parser for the rest of the sentence
@@ -58,66 +82,62 @@ void gps_parser(gps_t *gps_data, uint8_t *gps_buffer){
 void gps_parser_rmc(gps_t *gps_data, uint8_t *gps_buffer){
     char *token;
     char* rest = (char *)gps_buffer;
-    char* endptr;
-    float val;
 
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->utc = strtof(token, &endptr);
+    if(gps_field_present(token)) gps_parse_time(gps_data, token);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->status = (uint8_t)strtol(token, &endptr, 10);
+    if(gps_field_present(token)) gps_data->status = (uint8_t)token[0];
     token = gps_next_field(&rest);
-    if(gps_field_present(token)){
-        val = strtof(token, &endptr);
-        if(val != 0.0f) gps_data->lat = val;
-    }
-    token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->lat_ns = token[0];
+    if(gps_field_present(token)) gps_data->lat = gps_nmea_to_deg_e7(token);
     token = gps_next_field(&rest);
     if(gps_field_present(token)){
-        val = strtof(token, &endptr);
-        if(val != 0.0f) gps_data->lon = val;
+        gps_data->lat_ns = token[0];
+        if(token[0] == 'S') gps_data->lat = -gps_data->lat;
     }
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->lon_ew = token[0];
+    if(gps_field_present(token)) gps_data->lon = gps_nmea_to_deg_e7(token);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->speed = strtof(token, &endptr);
+    if(gps_field_present(token)){
+        gps_data->lon_ew = token[0];
+        if(token[0] == 'W') gps_data->lon = -gps_data->lon;
+    }
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->course = strtof(token, &endptr);
+    if(gps_field_present(token)) gps_data->speed = (uint16_t)(strtod(token, NULL) * 100.0);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->date = strtof(token, &endptr);
+    if(gps_field_present(token)) gps_data->course = (uint16_t)(strtod(token, NULL) * 100.0);
+    token = gps_next_field(&rest);
+    if(gps_field_present(token)) gps_parse_date(gps_data, token);
 
 }
 
 void gps_parser_gga(gps_t *gps_data, uint8_t *gps_buffer){
     char *token;
     char* rest = (char *)gps_buffer;
-    char* endptr;
-    float val;
 
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->utc = strtof(token, &endptr);
+    if(gps_field_present(token)) gps_parse_time(gps_data, token);
+    token = gps_next_field(&rest);
+    if(gps_field_present(token)) gps_data->lat = gps_nmea_to_deg_e7(token);
     token = gps_next_field(&rest);
     if(gps_field_present(token)){
-        val = strtof(token, &endptr);
-        if(val != 0.0f) gps_data->lat = val;
+        gps_data->lat_ns = token[0];
+        if(token[0] == 'S') gps_data->lat = -gps_data->lat;
     }
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->lat_ns = token[0];
+    if(gps_field_present(token)) gps_data->lon = gps_nmea_to_deg_e7(token);
     token = gps_next_field(&rest);
     if(gps_field_present(token)){
-        val = strtof(token, &endptr);
-        if(val != 0.0f) gps_data->lon = val;
+        gps_data->lon_ew = token[0];
+        if(token[0] == 'W') gps_data->lon = -gps_data->lon;
     }
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->lon_ew = token[0];
+    if(gps_field_present(token)) gps_data->fix_quality = (uint8_t)strtol(token, NULL, 10);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->fix_quality = (uint8_t)strtol(token, &endptr, 10);
+    if(gps_field_present(token)) gps_data->num_sats = (uint8_t)strtol(token, NULL, 10);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->num_sats = (uint8_t)strtol(token, &endptr, 10);
+    if(gps_field_present(token)) gps_data->hdop = (uint16_t)(strtod(token, NULL) * 100.0);
     token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->hdop = strtof(token, &endptr);
-    token = gps_next_field(&rest);
-    if(gps_field_present(token)) gps_data->altitude = strtof(token, &endptr);
+    if(gps_field_present(token)) gps_data->altitude = (int32_t)(strtod(token, NULL) * 1000.0);
 
 }
 

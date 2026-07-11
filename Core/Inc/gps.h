@@ -28,28 +28,33 @@
 
 
 typedef struct {
-    uint8_t header[7]; //$GNRMC OR $GNGGA
+    uint8_t  header[7];      // "$GNRMC" or "$GNGGA" + null
 
     // shared position fields (RMC, GGA)
-    float utc;
-    float lat;
-    uint8_t lat_ns;
-    float lon;
-    uint8_t lon_ew;
+    uint8_t  hour;           // UTC hh
+    uint8_t  minute;         // UTC mm
+    uint8_t  second;         // UTC ss  (drop .ss centiseconds unless needed)
+    int32_t  lat;            // decimal degrees * 1e7  (uBlox-native scale)
+    uint8_t  lat_ns;         // 'N' / 'S'
+    int32_t  lon;            // decimal degrees * 1e7
+    uint8_t  lon_ew;         // 'E' / 'W'
 
     // RMC
-    uint8_t status;
-    float speed;
-    float course;
-    float date;
+    uint8_t  status;         // 'A' active / 'V' void
+    uint16_t speed;          // knots * 100   (e.g. 12.34 kn -> 1234)
+    uint16_t course;         // degrees * 100 (0-359.99 -> 0-35999)
+    uint8_t  day;            // date dd
+    uint8_t  month;          // date mm
+    uint8_t  year;           // date yy (2-digit, since NMEA gives yy)
 
     // GGA
-    uint8_t fix_quality;
-    uint8_t num_sats;
-    float altitude;
-    float hdop;
-
+    uint8_t  fix_quality;    // 0-8
+    uint8_t  num_sats;       // count
+    int32_t  altitude;       // meters * 1000 (mm) or * 100 (cm) — see note
+    uint16_t hdop;           // * 100 (e.g. 1.5 -> 150)
 } gps_t;
+
+
 
 
 typedef enum {

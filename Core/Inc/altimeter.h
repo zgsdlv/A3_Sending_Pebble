@@ -28,12 +28,13 @@ typedef enum {
     ALT_I2C_ERROR   = 1,
     ALT_I2C_BUSY    = 2,
     ALT_TIMEOUT     = 3
-} alt_comm_t;
+} alt_i2c_status_t;
 
 typedef enum{
-    ALT_FATAL_ERR   = 4,
-    ALT_CMD_ERROR   = 5,
-    ALT_CONFIG_ERR  = 6 
+    ALT_NO_ERROR    = 0,
+    ALT_FATAL_ERR   = 1,
+    ALT_CMD_ERROR   = 2,
+    ALT_CONFIG_ERR  = 3, 
 }alt_error_t;
 
 typedef enum{
@@ -80,14 +81,14 @@ typedef enum{
 
 typedef struct{
 
-    float pressure;
-    float temperature;
+    uint32_t pressure;
+    uint32_t temperature;
     uint32_t raw_temp;
     uint32_t raw_press;
     alt_calib_data calib_data;
-    alt_comm_t     i2c_status;
+    alt_i2c_status_t  i2c_status;
     alt_event_t    event;
-    alt_error_t    errors;
+    uint8_t        errors;
     alt_status_t   status;
     alt_mode_t     mode;
 
@@ -170,13 +171,13 @@ typedef enum {
 #define ALT_ODR_50HZ                  0x02
 
 
-alt_status_t alt_read_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len);
-alt_status_t alt_write_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len);
-alt_status_t alt_config();
-alt_status_t alt_get_data();
-alt_status_t alt_get_error();
-alt_status_t alt_get_status();
-alt_status_t alt_set_sleep_mode();
-alt_status_t alt_get_calib_data();
+alt_i2c_status_t alt_read_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len);
+alt_i2c_status_t alt_write_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len);
+alt_i2c_status_t alt_config();
+alt_i2c_status_t alt_get_data();
+alt_i2c_status_t alt_get_errors();
+alt_i2c_status_t alt_get_status();
+alt_i2c_status_t alt_set_sleep_mode();
+alt_i2c_status_t alt_get_calib_data();
 
 #endif

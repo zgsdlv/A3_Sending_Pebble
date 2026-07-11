@@ -33,6 +33,7 @@
 #include "gps.h"
 #include <stdint.h>
 #include <string.h>
+#include <sys/_intsup.h>
 #include "usart_if.h"
 #include "altimeter.h"
 #include "softuart.h"
@@ -47,6 +48,30 @@ typedef enum{
   IN_FLIGHT,
   RECOVERY
 }deviceState_t;
+
+typedef struct __attribute__((packed)){
+
+  const char  header[3];
+  uint8_t  utc_hour;
+  uint8_t  utc_minute;
+  uint8_t  utc_seconds;
+
+  int32_t  lat;            
+  uint8_t  lat_ns;         
+  int32_t  lon;            
+  uint8_t  lon_ew;    
+  int32_t  altitude;  
+
+  uint8_t  status; 
+  uint8_t  fix_quality; 
+  uint8_t  num_sats; 
+   
+  uint32_t baro_alt;
+  uint16_t sensor_status;
+  deviceState_t  rocket_state;
+  uint16_t batt_v;
+
+}telem_packet_t;  
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -78,7 +103,7 @@ osThreadId_t Conops_TaskHandle;
 const osThreadAttr_t Conops_Task_attributes = {
   .name = "Conops_Task",
   .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 2024 * 4
+  .stack_size = 512 * 4
 };
 /* Definitions for GPS_Task */
 osThreadId_t GPS_TaskHandle;
@@ -101,6 +126,28 @@ const osThreadAttr_t FC_Task_attributes = {
   .priority = (osPriority_t) osPriorityLow,
   .stack_size = 512 * 4
 };
+/* Definitions for Telemetry */
+osThreadId_t TelemetryHandle;
+const osThreadAttr_t Telemetry_attributes = {
+  .name = "Telemetry",
+  .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 512 * 4
+};
+/* Definitions for GPS_Queue */
+osMessageQueueId_t GPS_QueueHandle;
+const osMessageQueueAttr_t GPS_Queue_attributes = {
+  .name = "GPS_Queue"
+};
+/* Definitions for Alt_Queue */
+osMessageQueueId_t Alt_QueueHandle;
+const osMessageQueueAttr_t Alt_Queue_attributes = {
+  .name = "Alt_Queue"
+};
+/* Definitions for FC_Queue */
+osMessageQueueId_t FC_QueueHandle;
+const osMessageQueueAttr_t FC_Queue_attributes = {
+  .name = "FC_Queue"
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -115,6 +162,7 @@ void Conops_Process(void *argument);
 void GPS_Process(void *argument);
 void Altimeter_Process(void *argument);
 void FC_Process(void *argument);
+void Telem_process(void *argument);
 
 /* USER CODE BEGIN PFP */
 void header_art();
@@ -193,6 +241,16 @@ int main(void)
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* creation of GPS_Queue */
+  GPS_QueueHandle = osMessageQueueNew (10, sizeof(gps_t), &GPS_Queue_attributes);
+
+  /* creation of Alt_Queue */
+  Alt_QueueHandle = osMessageQueueNew (10, sizeof(alt_sensor_t), &Alt_Queue_attributes);
+
+  /* creation of FC_Queue */
+  FC_QueueHandle = osMessageQueueNew (10, sizeof(uint16_t), &FC_Queue_attributes);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -209,6 +267,9 @@ int main(void)
 
   /* creation of FC_Task */
   FC_TaskHandle = osThreadNew(FC_Process, NULL, &FC_Task_attributes);
+
+  /* creation of Telemetry */
+  TelemetryHandle = osThreadNew(Telem_process, NULL, &Telemetry_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -726,13 +787,27 @@ void check_debug_pins(){
 static void setState(deviceState_t new_state){
   state =  new_state;
   switch(new_state){
+    case OFF:
+    // power off if battery is to low
+    //state it wake up in
+      break;
     case PRE_FLIGHT:
+      //commands to send (frequency change, and ARM)
+      // maybe should also be in low power mode except radio
       break;
     case ARMED:
+      // send arm command to flight computer.
+      // wait for gps lock before going into in_flight
+      // start timer in case flight computer fails to 
       break;
     case IN_FLIGHT:
+    //  normal operation
+    //  flight computer detect recovery
+    // waht happens if we lose lock?
       break;
     case RECOVERY:
+    // turn off bmp, fc communication, reduce transmission rates, keep gps on and battery on
+    // turn off flash
       break;
     default:
       break;
@@ -816,10 +891,14 @@ void GPS_Process(void *argument)
 
       //APP_LOG(TS_OFF, VLEVEL_L, "%s\r\n", gps_buffer);
       gps_parser(&gps_data, gps_parse_buf);
+  
+      //send data through queue
+      osMessageQueuePut(GPS_QueueHandle,&gps_data,0,osWaitForever);
+
       gps_ready_flg = 0;
     }
 
-    osDelay(250);
+    osDelay(500);
   }
   /* USER CODE END GPS_Process */
 }
@@ -847,6 +926,9 @@ void Altimeter_Process(void *argument)
   for(;;)
   {
     err = alt_get_data(&altimeter);   // returns ALT_I2C_BUSY until a conversion is ready
+    if(err == ALT_I2C_OK){
+      osMessageQueuePut(Alt_QueueHandle,&altimeter,0,osWaitForever);
+    }
     osDelay(500);
   }
   /* USER CODE END Altimeter_Process */
@@ -870,7 +952,10 @@ void FC_Process(void *argument)
   
   SoftUartInit(0,FC_TX_GPIO_Port,FC_TX_Pin,FC_RX_GPIO_Port, FC_RX_Pin);
   SoftUartEnableRx(0);
-  SoftUartPuts(0,(uint8_t*)"RX Test!\r\n",10);
+  
+  // for now
+  uint16_t sensor_status = 0xFFFF;
+
   /* Infinite loop */
   for(;;)
   {
@@ -899,9 +984,93 @@ void FC_Process(void *argument)
 
         }
     }
-    osDelay(5);
+    osMessageQueuePut(FC_QueueHandle, &sensor_status, 0, 500);
+    osDelay(500); //changed for now
   }
   /* USER CODE END FC_Process */
+}
+
+/* USER CODE BEGIN Header_Telem_process */
+/**
+* @brief Function implementing the telemetry thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Telem_process */
+void Telem_process(void *argument)
+{
+  /* USER CODE BEGIN Telem_process */
+
+  // adc init
+  // receive gps struct queues
+  // receive alt struct queues
+  // reveive flight computer queue
+  // grab battery value
+  telem_packet_t payload;
+  memset(&payload, 0, sizeof(payload));
+  memcpy(payload.header, (uint8_t *)"$SP", 3);
+
+
+  gps_t gps;
+  alt_sensor_t alt;
+  uint16_t fc_data;
+
+  osStatus_t status;
+
+  /* Infinite loop */
+  for(;;)
+  {
+    payload.rocket_state = state;
+    status = osMessageQueueGet(GPS_QueueHandle, &gps, NULL, osWaitForever);
+    if(status == osOK){
+      payload.utc_hour    = gps.hour;
+      payload.utc_minute  = gps.minute;
+      payload.utc_seconds = gps.second;
+
+      payload.lat         = gps.lat;
+      payload.lat_ns      = gps.lat_ns;
+      payload.lon         = gps.lon;
+      payload.lon_ew      = gps.lon_ew;
+      payload.altitude    = gps.altitude;
+
+      payload.status      = gps.status;
+      payload.fix_quality = gps.fix_quality;
+      payload.num_sats    = gps.num_sats;
+    }else{
+      APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Error GPS Queue: %u \r\n", status);
+    }
+
+    status = osMessageQueueGet(Alt_QueueHandle, &alt, NULL, osWaitForever);
+    if(status == osOK){
+      //check for own status
+      if((alt.i2c_status != ALT_I2C_OK) || (alt.errors != 0)){
+        //APP_LOG(TS_OFF, VLEVEL_ALWAYS, "ALT Error: %u \r\n",alt.errors);
+        
+      }
+      else{
+        payload.baro_alt  = alt.pressure;
+      }
+    }else{
+      APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Error Alt Queue: %u \r\n", status);
+    }
+
+    status = osMessageQueueGet(FC_QueueHandle, &fc_data, NULL, osWaitForever);
+    if(status == osOK){
+      payload.sensor_status = fc_data;
+    }else{
+      APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Error FC Queue: %u \r\n", status);
+    }
+
+      // dump the raw payload packet as hex
+    char line[3 * sizeof(payload) + 1];
+    uint8_t *p = (uint8_t *)&payload;
+    for (uint32_t i = 0; i < sizeof(payload); i++)
+    snprintf(&line[i * 3], 4, "%02X ", p[i]);
+    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "PKT[%u]: %s\r\n", (unsigned)sizeof(payload), line);
+
+    osThreadYield();
+  }
+  /* USER CODE END Telem_process */
 }
 
 /**

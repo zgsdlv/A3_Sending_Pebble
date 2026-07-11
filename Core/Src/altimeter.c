@@ -13,7 +13,7 @@ static struct alt_calib_data calib_data;
 
 
 
-alt_status_t alt_read_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
+alt_i2c_status_t alt_read_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
 
     if( HAL_I2C_Mem_Read(&hi2c2, ALT_ADDRSS, (uint8_t)reg_addrss, I2C_MEMADD_SIZE_8BIT, data, len, I2C_TIMEOUT) == HAL_OK){
         return ALT_I2C_OK;
@@ -24,7 +24,7 @@ alt_status_t alt_read_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
 
 }
 
-alt_status_t alt_write_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
+alt_i2c_status_t alt_write_reg(alt_reg reg_addrss, uint8_t *data, uint8_t len){
 
     if( HAL_I2C_Mem_Write(&hi2c2, ALT_ADDRSS, (uint8_t)reg_addrss, I2C_MEMADD_SIZE_8BIT, data, len, I2C_TIMEOUT) == HAL_OK){
         return ALT_I2C_OK;
@@ -96,7 +96,7 @@ uint64_t alt_press_comp_fxd(uint32_t uncomp_press, struct alt_calib_data *calib_
 }
 
 
-alt_status_t alt_config(alt_sensor_t * altimeter){
+alt_i2c_status_t alt_config(alt_sensor_t * altimeter){
     // Will use the drone sugggested settings fornow (found in datasheet), can change later if needed
     // normal mode, standard resolution, 0x8 pressure, 0x1 temp, IIR filter 2, 570 microA, 50 Hz 11 RMS noise pg 17
     APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Configuring Altimeter..\r\n");
@@ -146,17 +146,34 @@ alt_status_t alt_config(alt_sensor_t * altimeter){
     if(ret != ALT_I2C_OK) return ret;
     altimeter->mode = ALT_NORMAL_MODE;
 
+    //check for any errors
+    uint8_t errors = 0;
+    ret = alt_get_errors(&errors);
+    APP_LOG(TS_OFF, VLEVEL_ALWAYS, "ALT errors: %u\r\n",errors);
+    if(ret == 0){
+        altimeter->errors=errors & 0x7;
+        if(errors & ALT_FATAL_ERR_MSK){
+           APP_LOG(TS_OFF, VLEVEL_ALWAYS, "ALT fatal Error\r\n");
+        }
+        if(errors & ALT_CMD_ERROR_MSK){
+           APP_LOG(TS_OFF, VLEVEL_ALWAYS, "ALT cmd Error\r\n");
+        }
+        if(errors & ALT_CONFIG_ERR_MSK){
+           APP_LOG(TS_OFF, VLEVEL_ALWAYS, "ALT Config Error\r\n");
+        }
+    }
+
     altimeter->i2c_status = ret;
     return ALT_I2C_OK;
 }
 
-alt_status_t alt_get_data(alt_sensor_t * altimeter){
+alt_i2c_status_t alt_get_data(alt_sensor_t * altimeter){
 
     //check flag if data is ready
     uint8_t status;
     uint8_t ret = alt_get_status(&status);
     if (ret != ALT_I2C_OK) return ret;
-    altimeter->status = status;
+    altimeter->event = status;
     
     if(!(status & ALT_DRDY_PRESS_MSK) | !(status & ALT_DRDY_TEMP_MSK)){
         APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Data not ready yet\r\n");
@@ -181,20 +198,21 @@ alt_status_t alt_get_data(alt_sensor_t * altimeter){
     alt_temp_comp_fxd(temp_raw, &calib_data);              // sets calib_data.t_lin (S=48)
     uint64_t comp_press = alt_press_comp_fxd(pressure_raw, &calib_data);  // 1/100 Pa
     int32_t temp_centi = (int32_t)(((calib_data.t_lin >> 32) * 100) >> 16);
-    altimeter->temperature    = (float)temp_centi / 100.0f;   // degrees C
-    altimeter->pressure = (float)comp_press / 100.0f;   // Pa
+    altimeter->temperature = temp_centi;
+    altimeter->pressure = (uint32_t)comp_press;
+    //APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Pressure: %f\r\n",(float)comp_press/100);
 
     return ALT_I2C_OK;
 }
 
-alt_status_t alt_get_status(uint8_t * status_check){
+alt_i2c_status_t alt_get_status(uint8_t * status_check){
     alt_reg status_reg = ALT_STATUS;
     uint8_t ret = alt_read_reg(status_reg, status_check, 1);
     if(ret != ALT_I2C_OK) APP_LOG(TS_OFF, VLEVEL_ALWAYS, "Error reading Alt. status reg.");
     return ret;
 }
 
-alt_status_t alt_get_event(uint8_t * event_check){
+alt_i2c_status_t alt_get_event(uint8_t * event_check){
 
     alt_reg event_reg = ALT_EVENT;
     uint8_t ret = alt_read_reg(event_reg, event_check, 1);
@@ -202,9 +220,9 @@ alt_status_t alt_get_event(uint8_t * event_check){
     return ret;
 }
 
-alt_status_t alt_get_error(uint8_t * device_errors){
+alt_i2c_status_t alt_get_errors(uint8_t * device_errors){
 
-    alt_status_t error_status = 0;
+    alt_error_t error_status = ALT_NO_ERROR;
     alt_reg error_reg = ALT_ERR_REG;
     uint8_t ret = alt_read_reg(error_reg, &error_status, 1);
     if(ret != ALT_I2C_OK){
@@ -212,18 +230,18 @@ alt_status_t alt_get_error(uint8_t * device_errors){
         return ret;
     }
     else{
-        *device_errors &= CLEAR_ALT_ERRORS;
-        *device_errors |= error_status;
+        *device_errors &= ~CLEAR_ALT_ERRORS;
+        *device_errors |= (error_status & CLEAR_ALT_ERRORS);
     }
     return ret;
     
 }
 
-alt_status_t alt_set_sleep_mode(){
+alt_i2c_status_t alt_set_sleep_mode(){
     return ALT_I2C_OK;
 }
 
-alt_status_t alt_get_calib_data(){
+alt_i2c_status_t alt_get_calib_data(){
     return ALT_I2C_OK;
 }
 
