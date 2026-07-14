@@ -1,12 +1,25 @@
 #include "flash.h"
 #include "stm32wlxx_hal_conf.h"
 #include "spi.h"
+#include "tim.h"
+#include <float.h>
 
 
 
-
+extern TIM_HandleTypeDef htim5;
 extern SPI_HandleTypeDef hspi1;
 
+
+void delay_us(uint32_t us) {
+
+    volatile uint32_t *cnt = &htim5.Instance->CNT;
+
+    __HAL_TIM_SET_COUNTER(&htim5, us); // Set the counter to number of us
+    HAL_TIM_Base_Start(&htim5);        // Fire up the timer
+    while (*cnt != 0);                 // Just wait until 0
+    HAL_TIM_Base_Stop(&htim5);
+
+}
 
 spi_write_t Win_Write_Enable(void){
 	HAL_StatusTypeDef status;
@@ -448,3 +461,188 @@ spi_write_t Win_Erase_Program_Suspend(void){
 
 	return WIN_SPI_OK;
 }
+
+
+spi_write_t Win_Erase_Program_Resume(void){
+
+	HAL_StatusTypeDef status;
+	uint8_t sr1, sr2;
+	uint8_t cmd = ERASE_PROGRAM_RESUME;
+
+
+	if(Win_Read_Status_Register(&sr1,SREG1) != WIN_SPI_OK){
+		return WIN_SPI_ERROR;
+	}
+
+	if(Win_Read_Status_Register(&sr2,SREG2) != WIN_SPI_OK){
+		return WIN_SPI_ERROR;
+	}
+
+
+
+	if((sr1 & 0x01) || !(sr2 &0x80)){
+		return WIN_SPI_ERROR;
+	}
+
+
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+	status = HAL_SPI_Transmit(&hspi1, &cmd, 1, HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+	if(status != HAL_OK){
+		return WIN_SPI_ERROR;
+	}
+
+	uint32_t start = HAL_GetTick();
+	uint8_t busy_confirmed = 0;
+
+
+	while((HAL_GetTick()-start)<2){
+		if(Win_Read_Status_Register(&sr1,SREG1)!= WIN_SPI_OK){
+			return WIN_SPI_ERROR;
+		}
+		if(sr1 & 0x01){
+			busy_confirmed = 1;
+			break;
+		}
+	}
+
+	if(!busy_confirmed){
+		return WIN_SPI_ERROR;
+	}
+
+
+	return WIN_SPI_OK;
+}
+
+spi_write_t Win_Power_Down(void){
+	HAL_StatusTypeDef status;
+	uint8_t cmd = POWER_DOWN;
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+	status = HAL_SPI_Transmit(&hspi1, &cmd,1,HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+
+
+	if(status != HAL_OK){
+		return WIN_SPI_ERROR;
+	}	
+
+	uint32_t start = HAL_GetTick();
+
+
+	delay_us(3);
+
+
+	return WIN_SPI_OK;
+}
+
+spi_write_t Win_Release_Power_Down(void){
+	HAL_Status_TypeDef status;
+
+	uint8_t cmd = POWER_RELEASE;
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+	status = HAL_SPI_Transmit(&hspi1,&cmd,1,HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+
+	if(status != HAL_OK){
+		return WIN_SPI_ERROR;
+	}
+
+
+	delay_us(3);
+
+
+	return WIN_SPI_OK;
+}
+
+spi_write_t Win_Release_Power_Down_Read_ID(uint8_t *device_id){
+	HAL_StatusTypeDef status;
+	uint8_t tx[5] = {0};
+	uint8_t rx[5] = {0};
+
+	tx[0] = POWER_RELEASE; 
+
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+	status = HAL_SPI_TransmitReceive(&hspi1, tx, rx, 5, HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+	if(status != HAL_OK){
+		return WIN_SPI_ERROR;
+	}
+
+	*device_id = rx[2];
+
+
+	delay_us(1.8);
+
+	return WIN_SPI_OK;
+}
+
+spi_write_t Win_Read_Manufacturer(uint8_t address[], uint8_t *manufacturer_id, uint8_t* device_id){
+
+	HAL_StatusTypeDef status;
+	uint8_t tx[5] = {0};
+	uint8_t rx[5] = {0};
+
+	tx[0] = READ_MANUFACTURER_DEVICE_ID; 
+	tx[1] = address[0];
+	tx[2] = address[1];
+	tx[3] = address[2];
+
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+	status = HAL_SPI_TransmitReceive(&hspi1, tx, rx, 5, HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+	if(status != HAL_OK){
+		return WIN_SPI_ERROR;
+	}
+
+	*manufacturer_id = rx[3];
+	*device_id = rx[4];
+
+
+	return WIN_SPI_OK;
+
+
+}
+
+spi_write_t Win_Read_Unique_ID(uint64_t *unique_serial_number){
+
+	HAL_StatusTypeDef status;
+
+	uint8_t tx[5] = {0};
+	uint8_t rx[8] = {0};
+
+	tx[0]=READ_JEDEC_ID;
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+		status = HAL_SPI_Transmit(&hspi1, tx, 5, HAL_MAX_DELAY);
+
+
+		if(status != HAL_OK){
+			HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+		return WIN_SPI_ERROR;
+	}
+
+		status = HAL_SPI_Receive(&hspi1,rx,8,HAL_MAX_DELAY);
+
+		if(status != HAL_OK){
+			HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+		return WIN_SPI_ERROR;
+	}
+
+	*unique_serial_number = 0;
+	for(int i = 0; i < 8; i++){
+		*unique_serial_number = (*unique_serial_number << 8) | rx[7-i]; 
+	}
+
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+
+	return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Read_SFDP(uint64_t* )
