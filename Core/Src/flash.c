@@ -644,5 +644,221 @@ spi_write_t Win_Read_Unique_ID(uint64_t *unique_serial_number){
 	return WIN_SPI_OK;
 }
 
+spi_write_t Win_Read_SFDP(uint8_t address[], uint8_t output[], uint16_t len){
 
-spi_write_t Win_Read_SFDP(uint64_t* )
+    HAL_StatusTypeDef status;
+    uint8_t tx[4] = {READ_SFDP_REGISTER, address[0], address[1], address[2]};
+    uint8_t dummy = 0;
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 4, HAL_MAX_DELAY);
+    if(status != HAL_OK){
+        HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+        return WIN_SPI_ERROR;
+    }
+
+    status = HAL_SPI_Transmit(&hspi1, &dummy, 1, HAL_MAX_DELAY);
+    if(status != HAL_OK){
+        HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+        return WIN_SPI_ERROR;
+    }
+
+    status = HAL_SPI_Receive(&hspi1, output, len, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Erase_Security_Register(uint8_t address[]){
+
+	HAL_StatusTypeDef status;
+	uint8_t tx[4] = {ERASE_SECURITY_REGISTER, address[0], address[1], address[2]};
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+
+	status = HAL_SPI_Transmit(&hspi1,tx,4,HAL_MAX_DELAY);
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+	
+	if(status != HAL_OK) return WIN_SPI_ERROR;
+
+	return WIN_SPI_OK;
+}
+
+
+
+spi_write_t Win_Program_Security_Register(uint8_t address[]){
+
+	HAL_StatusTypeDef status;
+	uint8_t tx[4] = {PROGRAM_SECURITY_REGISTER, address[0], address[1], address[2]};
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+
+	status = HAL_SPI_Transmit(&hspi1,tx,4,HAL_MAX_DELAY);
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+	
+	if(status != HAL_OK) return WIN_SPI_ERROR;
+
+	return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Read_Security_Register(uint8_t address[]){
+
+    HAL_StatusTypeDef status;
+	uint8_t tx[4] = {READ_SECURITY_REGISTER, address[0], address[1], address[2]};
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_RESET);
+
+	status = HAL_SPI_Transmit(&hspi1,tx,4,HAL_MAX_DELAY);
+
+	HAL_GPIO_WritePin(WIN_CS_PORT,WIN_CS_PIN,GPIO_PIN_SET);
+	
+	if(status != HAL_OK) return WIN_SPI_ERROR;
+
+	return WIN_SPI_OK;
+}
+
+spi_write_t Win_Individual_Block_Sector_Lock(uint8_t address[]){
+
+    HAL_StatusTypeDef status;
+    uint8_t tx[4] = {INDIVIDUAL_BLOCK_SECTOR_LOCK, address[0], address[1], address[2]};
+
+    if(Win_Write_Enable() != WIN_SPI_OK){
+        return WIN_SPI_ERROR;
+    }
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 4, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Individual_Block_Sector_Unlock(uint8_t address[]){
+
+    HAL_StatusTypeDef status;
+    uint8_t tx[4] = {INDIVIDUAL_BLOCK_SECTOR_UNLOCK, address[0], address[1], address[2]};
+
+    if(Win_Write_Enable() != WIN_SPI_OK){
+        return WIN_SPI_ERROR;
+    }
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 4, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Read_Block_Sector_Lock(uint8_t address[], uint8_t *lock_status){
+
+    HAL_StatusTypeDef status;
+    uint8_t tx[4] = {READ_BLOCK_SECTOR_LOCK, address[0], address[1], address[2]};
+    uint8_t rx = 0;
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 4, HAL_MAX_DELAY);
+    if(status != HAL_OK){
+        HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+        return WIN_SPI_ERROR;
+    }
+
+    status = HAL_SPI_Receive(&hspi1, &rx, 1, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    *lock_status = rx & 0x01;
+
+    return WIN_SPI_OK;
+}
+
+spi_write_t Win_Global_Block_Sector_Lock(void){
+	   HAL_StatusTypeDef status;
+    uint8_t tx[1] = {GLOBAL_BLOCK_SECTOR_LOCK};
+
+    if(Win_Write_Enable() != WIN_SPI_OK){
+        return WIN_SPI_ERROR;
+    }
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 1, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Global_Block_Sector_Unlock(void){
+	HAL_StatusTypeDef status;
+    uint8_t tx[1] = {GLOBAL_BLOCK_SECTOR_UNLOCK};
+
+    if(Win_Write_Enable() != WIN_SPI_OK){
+        return WIN_SPI_ERROR;
+    }
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+
+    status = HAL_SPI_Transmit(&hspi1, tx, 1, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    return WIN_SPI_OK;
+}
+
+
+spi_write_t Win_Reset(void){
+
+    HAL_StatusTypeDef status;
+    uint8_t enable_reset_cmd = ENABLE_RESET;
+    uint8_t reset_cmd = RESET_DEVICE;
+
+    uint8_t sr1 = Win_Read_Status_Register_1();
+    if(sr1 & BUSY_MASK){
+        return WIN_SPI_ERROR; 
+    }
+
+    uint8_t sr2 = Win_Read_Status_Register_2();
+    if(sr2 & SUS_MASK){
+        return WIN_SPI_ERROR; 
+    }
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+    status = HAL_SPI_Transmit(&hspi1, &enable_reset_cmd, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_RESET);
+    status = HAL_SPI_Transmit(&hspi1, &reset_cmd, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(WIN_CS_PORT, WIN_CS_PIN, GPIO_PIN_SET);
+
+    if(status != HAL_OK) return WIN_SPI_ERROR;
+
+    delay_us(30); 
+    return WIN_SPI_OK;
+}
